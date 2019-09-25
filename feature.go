@@ -8,12 +8,12 @@ import (
 
 // A Feature corresponds to GeoJSON feature object
 type Feature struct {
-	ID          interface{}            `json:"id,omitempty"`
+	ID          interface{}            `json:"id,omitempty" bson:",omitempty"`
 	Type        string                 `json:"type"`
-	BoundingBox []float64              `json:"bbox,omitempty"`
+	BoundingBox []float64              `json:"bbox,omitempty" bson:",omitempty"`
 	Geometry    *Geometry              `json:"geometry"`
 	Properties  map[string]interface{} `json:"properties"`
-	CRS         map[string]interface{} `json:"crs,omitempty"` // Coordinate Reference System Objects are not currently supported
+	CRS         map[string]interface{} `json:"crs,omitempty" bson:",omitempty"` // Coordinate Reference System Objects are not currently supported
 }
 
 // NewFeature creates and initializes a GeoJSON feature given the required attributes.
