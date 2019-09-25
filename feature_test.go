@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 func TestNewFeature(t *testing.T) {
@@ -136,5 +138,37 @@ func TestUnmarshalFeatureID(t *testing.T) {
 
 	if v, ok := f.ID.(string); !ok || v != "abcd" {
 		t.Errorf("should parse id as string, got %T %s", f.ID, v)
+	}
+}
+
+func TestBSON(t *testing.T) {
+	f := NewFeature(NewPointGeometry([]float64{1, 2}))
+	f.ID = "abcd"
+	blob, err := bson.Marshal(*f)
+
+	if err != nil {
+		t.Fatalf("should marshal to bson just fine but got %v", err)
+	}
+
+	var ff Feature
+	err = bson.Unmarshal(blob, &ff)
+	if err != nil {
+		t.Fatalf("should unmarshal from bson just fine but got %v", err)
+	}
+
+	if ff.ID != f.ID {
+		t.Fatalf("should have same ID after BSON round trip but got %v", ff.ID)
+	}
+	if ff.Type != f.Type {
+		t.Fatalf("should have same Type after BSON round trip but got %v", ff.Type)
+	}
+	if !ff.Geometry.IsPoint() {
+		t.Fatalf("should still contain Point after BSON round trip but got %v", *ff.Geometry)
+	}
+	if (*ff.Geometry).Point[0] != (*f.Geometry).Point[0] {
+		t.Fatalf("should still contain right coordinates after BSON round trip but got %v", (*ff.Geometry).Point[0])
+	}
+	if (*ff.Geometry).Point[1] != (*f.Geometry).Point[1] {
+		t.Fatalf("should still contain right coordinates after BSON round trip but got %v", (*ff.Geometry).Point[1])
 	}
 }

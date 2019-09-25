@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // A GeometryType serves to enumerate the different GeoJSON geometry types.
@@ -173,6 +175,58 @@ func (g *Geometry) Scan(value interface{}) error {
 	return g.UnmarshalJSON(data)
 }
 
+// MarshalBSON converts the geometry object into the correct JSON.
+// This fulfills the bson.Marshaler interface.
+func (g Geometry) MarshalBSON() ([]byte, error) {
+	type geometry struct {
+		Type        GeometryType           `bson:"type"`
+		BoundingBox []float64              `bson:"bbox,omitempty"`
+		Coordinates interface{}            `bson:"coordinates,omitempty"`
+		Geometries  interface{}            `bson:"geometries,omitempty"`
+		CRS         map[string]interface{} `bson:"crs,omitempty"`
+	}
+
+	geo := &geometry{
+		Type: g.Type,
+	}
+
+	if g.BoundingBox != nil && len(g.BoundingBox) != 0 {
+		geo.BoundingBox = g.BoundingBox
+	}
+
+	switch g.Type {
+	case GeometryPoint:
+		geo.Coordinates = g.Point
+	case GeometryMultiPoint:
+		geo.Coordinates = g.MultiPoint
+	case GeometryLineString:
+		geo.Coordinates = g.LineString
+	case GeometryMultiLineString:
+		geo.Coordinates = g.MultiLineString
+	case GeometryPolygon:
+		geo.Coordinates = g.Polygon
+	case GeometryMultiPolygon:
+		geo.Coordinates = g.MultiPolygon
+	case GeometryCollection:
+		geo.Geometries = g.Geometries
+	}
+
+	return bson.Marshal(geo)
+}
+
+// UnmarshalBSON decodes the data into a GeoJSON geometry.
+// This fulfills the bson.Unmarshaler interface.
+func (g *Geometry) UnmarshalBSON(data []byte) error {
+	var object map[string]interface{}
+	err := bson.Unmarshal(data, &object)
+	if err != nil {
+		return err
+	}
+	convertAToArray(&object)
+
+	return decodeGeometry(g, object)
+}
+
 func decodeGeometry(g *Geometry, object map[string]interface{}) error {
 	t, ok := object["type"]
 	if !ok {
@@ -214,7 +268,7 @@ func decodeGeometry(g *Geometry, object map[string]interface{}) error {
 func decodePosition(data interface{}) ([]float64, error) {
 	coords, ok := data.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("not a valid position, got %v", data)
+		return nil, fmt.Errorf("not a valid position, got %#v", data)
 	}
 
 	result := make([]float64, 0, len(coords))

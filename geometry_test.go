@@ -3,7 +3,10 @@ package geojson
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 func TestGeometryMarshalJSONPoint(t *testing.T) {
@@ -361,4 +364,50 @@ func TestGeometryScan(t *testing.T) {
 		})
 	}
 
+}
+
+func TestBSONPoint(t *testing.T) {
+	g := NewPointGeometry([]float64{102, 0.5})
+	blob, err := bson.Marshal(*g)
+
+	if err != nil {
+		t.Fatalf("should marshal to bson just fine but got %v", err)
+	}
+
+	var gg Geometry
+	err = bson.Unmarshal(blob, &gg)
+	if err != nil {
+		t.Fatalf("should unmarshal from bson just fine but got %v", err)
+	}
+
+	if !reflect.DeepEqual(*g, gg) {
+		t.Fatalf("should be the same point %v after bson round trip but got %v", *g, gg)
+	}
+}
+
+func TestBSONMultiPolygon(t *testing.T) {
+	g := NewMultiPolygonGeometry(
+		[][][]float64{
+			{{1, 2}, {3, 4}},
+			{{5, 6}, {7, 8}},
+		},
+		[][][]float64{
+			{{8, 7}, {6, 5}},
+			{{4, 3}, {2, 1}},
+		})
+	blob, err := bson.Marshal(*g)
+
+	if err != nil {
+		t.Fatalf("should marshal to bson just fine but got %v", err)
+	}
+
+	var gg Geometry
+	err = bson.Unmarshal(blob, &gg)
+	if err != nil {
+		t.Fatalf("should unmarshal from bson just fine but got %v", err)
+	}
+
+	if !reflect.DeepEqual(*g, gg) {
+		t.Fatalf("should be the same point %v after bson round trip but got %v", *g, gg)
+	}
 }

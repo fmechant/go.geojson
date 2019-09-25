@@ -2,6 +2,8 @@ package geojson
 
 import (
 	"encoding/json"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // A Feature corresponds to GeoJSON feature object
@@ -81,6 +83,30 @@ func (f Feature) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(fea)
+}
+
+// MarshalBSON converts the feature object into the proper BSON.
+// It will handle the encoding of all the child geometries.
+func (f Feature) MarshalBSON() ([]byte, error) {
+	type feature Feature
+
+	fea := &feature{
+		ID:       f.ID,
+		Type:     "Feature",
+		Geometry: f.Geometry,
+	}
+
+	if f.BoundingBox != nil && len(f.BoundingBox) != 0 {
+		fea.BoundingBox = f.BoundingBox
+	}
+	if f.Properties != nil && len(f.Properties) != 0 {
+		fea.Properties = f.Properties
+	}
+	if f.CRS != nil && len(f.CRS) != 0 {
+		fea.CRS = f.CRS
+	}
+
+	return bson.Marshal(fea)
 }
 
 // UnmarshalFeature decodes the data into a GeoJSON feature.
