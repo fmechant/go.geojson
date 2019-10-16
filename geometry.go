@@ -279,7 +279,7 @@ func decodePosition(data interface{}) ([]float64, error) {
 			if i, ok := coord.(int); ok {
 				result = append(result, float64(i))
 			} else {
-				return nil, fmt.Errorf("not a valid coordinate, got %#v", coord)
+				return nil, fmt.Errorf("not a valid coordinate in %#v, got %T %v", data, coord, coord)
 			}
 		}
 	}
