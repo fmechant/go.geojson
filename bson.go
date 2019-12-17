@@ -18,5 +18,10 @@ func arr(v interface{}) interface{} {
 		}
 		return aa
 	}
+	if asMap, ok := v.(map[string]interface{}); ok {
+		for key := range asMap {
+			asMap[key] = arr(asMap[key])
+		}
+	}
 	return v
 }
