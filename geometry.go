@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -20,6 +21,13 @@ const (
 	GeometryPolygon         GeometryType = "Polygon"
 	GeometryMultiPolygon    GeometryType = "MultiPolygon"
 	GeometryCollection      GeometryType = "GeometryCollection"
+)
+
+var (
+	valueOfType        = reflect.ValueOf("type")
+	valueOfBbox        = reflect.ValueOf("bbox")
+	valueOfCoordinates = reflect.ValueOf("coordinates")
+	valueOfGeomeytries = reflect.ValueOf("geometries")
 )
 
 // A Geometry correlates to a GeoJSON geometry object.
@@ -152,8 +160,7 @@ func (g *Geometry) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-
-	return decodeGeometry(g, object)
+	return decodeGeometry(g, reflect.ValueOf(object))
 }
 
 // Scan implements the sql.Scanner interface allowing
@@ -222,155 +229,134 @@ func (g *Geometry) UnmarshalBSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	convertAToArray(&object)
 
-	return decodeGeometry(g, object)
+	return decodeGeometry(g, reflect.ValueOf(object))
 }
 
-func decodeGeometry(g *Geometry, object map[string]interface{}) error {
-	t, ok := object["type"]
-	if !ok {
-		return errors.New("type property not defined")
+func decodeGeometry(g *Geometry, value reflect.Value) error {
+	if value.Kind() != reflect.Map {
+		return fmt.Errorf("unable to decode %#v into geometry", value)
+	}
+	typeProp := mapIndexValue(value, valueOfType)
+	if typeProp.Kind() != reflect.String {
+		return fmt.Errorf("type property not defined in geometry %#v", value)
+	}
+	g.Type = GeometryType(typeProp.String())
+
+	bbProp := mapIndexValue(value, valueOfBbox)
+	if bbProp.Kind() != reflect.Invalid {
+		bb, err := decodeBoundingBoxValue(bbProp)
+		if err != nil {
+			return err
+		}
+		g.BoundingBox = bb
 	}
 
-	if s, ok := t.(string); ok {
-		g.Type = GeometryType(s)
-	} else {
-		return errors.New("type property not string")
-	}
-
-	bb, err := decodeBoundingBox(object["bbox"])
-	if err != nil {
-		return err
-	}
-	g.BoundingBox = bb
-
+	var err error
 	switch g.Type {
 	case GeometryPoint:
-		g.Point, err = decodePosition(object["coordinates"])
+		g.Point, err = decodePosition(mapIndexValue(value, valueOfCoordinates))
 	case GeometryMultiPoint:
-		g.MultiPoint, err = decodePositionSet(object["coordinates"])
+		g.MultiPoint, err = decodePositionSet(mapIndexValue(value, valueOfCoordinates))
 	case GeometryLineString:
-		g.LineString, err = decodePositionSet(object["coordinates"])
+		g.LineString, err = decodePositionSet(mapIndexValue(value, valueOfCoordinates))
 	case GeometryMultiLineString:
-		g.MultiLineString, err = decodePathSet(object["coordinates"])
+		g.MultiLineString, err = decodePathSet(mapIndexValue(value, valueOfCoordinates))
 	case GeometryPolygon:
-		g.Polygon, err = decodePathSet(object["coordinates"])
+		g.Polygon, err = decodePathSet(mapIndexValue(value, valueOfCoordinates))
 	case GeometryMultiPolygon:
-		g.MultiPolygon, err = decodePolygonSet(object["coordinates"])
+		g.MultiPolygon, err = decodePolygonSet(mapIndexValue(value, valueOfCoordinates))
 	case GeometryCollection:
-		g.Geometries, err = decodeGeometries(object["geometries"])
+		g.Geometries, err = decodeGeometries(mapIndexValue(value, valueOfGeomeytries))
 	}
 
 	return err
 }
 
-func decodePosition(data interface{}) ([]float64, error) {
-	coords, ok := data.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("not a valid position, got %#v", data)
+func decodePosition(pos reflect.Value) ([]float64, error) {
+	if pos.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("invalid position, got %#v", pos)
 	}
-
-	result := make([]float64, 0, len(coords))
-	for _, coord := range coords {
-		if f, ok := coord.(float64); ok {
-			result = append(result, f)
-		} else {
-			if i, ok := coord.(int32); ok {
-				result = append(result, float64(i))
-			} else {
-				if i, ok := coord.(int64); ok {
-					result = append(result, float64(i))
-				} else {
-					return nil, fmt.Errorf("not a valid coordinate in %#v, got %T %v", data, coord, coord)
-				}
-			}
+	result := make([]float64, pos.Len())
+	for i := range result {
+		coord := indexValue(pos, i)
+		k := coord.Kind()
+		if k == reflect.Int || k == reflect.Int8 || k == reflect.Int16 || k == reflect.Int32 || k == reflect.Int64 {
+			result[i] = float64(coord.Int())
+			continue
 		}
+		if k == reflect.Float32 || k == reflect.Float64 {
+			result[i] = coord.Float()
+			continue
+		}
+		return nil, fmt.Errorf("invalid coordinate in %#v, got %#v", pos, coord)
 	}
-
 	return result, nil
 }
 
-func decodePositionSet(data interface{}) ([][]float64, error) {
-	points, ok := data.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("not a valid set of positions, got %v", data)
+func decodePositionSet(posSet reflect.Value) ([][]float64, error) {
+	if posSet.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("invalid set of positions, got %#v", posSet)
 	}
-
-	result := make([][]float64, 0, len(points))
-	for _, point := range points {
-		if p, err := decodePosition(point); err == nil {
-			result = append(result, p)
-		} else {
+	result := make([][]float64, posSet.Len())
+	for i := range result {
+		pos, err := decodePosition(indexValue(posSet, i))
+		if err != nil {
 			return nil, err
 		}
+		result[i] = pos
 	}
-
 	return result, nil
 }
 
-func decodePathSet(data interface{}) ([][][]float64, error) {
-	sets, ok := data.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("not a valid path, got %v", data)
+func decodePathSet(pathSet reflect.Value) ([][][]float64, error) {
+	if pathSet.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("invalid path set, got %#v", pathSet)
 	}
-
-	result := make([][][]float64, 0, len(sets))
-
-	for _, set := range sets {
-		if s, err := decodePositionSet(set); err == nil {
-			result = append(result, s)
-		} else {
+	result := make([][][]float64, pathSet.Len())
+	for i := range result {
+		posSet, err := decodePositionSet(indexValue(pathSet, i))
+		if err != nil {
 			return nil, err
 		}
+		result[i] = posSet
 	}
-
 	return result, nil
 }
 
-func decodePolygonSet(data interface{}) ([][][][]float64, error) {
-	polygons, ok := data.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("not a valid polygon, got %v", data)
+func decodePolygonSet(polygonSet reflect.Value) ([][][][]float64, error) {
+	if polygonSet.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("invalid polygon, got %#v", polygonSet)
 	}
-
-	result := make([][][][]float64, 0, len(polygons))
-	for _, polygon := range polygons {
-		if p, err := decodePathSet(polygon); err == nil {
-			result = append(result, p)
-		} else {
+	result := make([][][][]float64, polygonSet.Len())
+	for i := range result {
+		pathSet, err := decodePathSet(indexValue(polygonSet, i))
+		if err != nil {
 			return nil, err
 		}
+		result[i] = pathSet
 	}
-
 	return result, nil
 }
 
-func decodeGeometries(data interface{}) ([]*Geometry, error) {
-	if vs, ok := data.([]interface{}); ok {
-		geometries := make([]*Geometry, 0, len(vs))
-		for _, v := range vs {
-			g := &Geometry{}
-
-			vmap, ok := v.(map[string]interface{})
-			if !ok {
-				break
-			}
-
-			err := decodeGeometry(g, vmap)
-			if err != nil {
-				return nil, err
-			}
-
-			geometries = append(geometries, g)
-		}
-
-		if len(geometries) == len(vs) {
-			return geometries, nil
-		}
+func decodeGeometries(geoms reflect.Value) ([]*Geometry, error) {
+	if geoms.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("invalid geometries %#v", geoms)
 	}
-
-	return nil, fmt.Errorf("not a valid set of geometries, got %v", data)
+	geometries := make([]*Geometry, geoms.Len())
+	for i := range geometries {
+		var g Geometry
+		v := indexValue(geoms, i)
+		if v.Kind() != reflect.Map {
+			return nil, fmt.Errorf("invalid geometry %#v found in geometries %v", v, geoms)
+		}
+		err := decodeGeometry(&g, v)
+		if err != nil {
+			return nil, err
+		}
+		geometries[i] = &g
+	}
+	return geometries, nil
 }
 
 // IsPoint returns true with the geometry object is a Point type.
@@ -406,4 +392,22 @@ func (g *Geometry) IsMultiPolygon() bool {
 // IsCollection returns true with the geometry object is a GeometryCollection type.
 func (g *Geometry) IsCollection() bool {
 	return g.Type == GeometryCollection
+}
+
+// mapIndexValue goes to the value behind the key in the map, and makes sure the kind of the value is not an interface
+func mapIndexValue(mp reflect.Value, key reflect.Value) reflect.Value {
+	return avoidInterface(mp.MapIndex(key))
+}
+
+// indexValue goes to the value behind the index in the iterable, and makes sure the kind of the value is not an interface
+func indexValue(sl reflect.Value, i int) reflect.Value {
+	return avoidInterface(sl.Index(i))
+}
+
+// avoidInterface makes sure the kind of the value is not an interface
+func avoidInterface(value reflect.Value) reflect.Value {
+	if value.Kind() != reflect.Interface {
+		return value
+	}
+	return reflect.ValueOf(value.Interface())
 }
