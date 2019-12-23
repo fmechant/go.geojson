@@ -1,6 +1,6 @@
 module github.com/fmechant/go.geojson
 
-go 1.12
+go 1.13
 
 require (
 	github.com/go-stack/stack v1.8.0 // indirect
